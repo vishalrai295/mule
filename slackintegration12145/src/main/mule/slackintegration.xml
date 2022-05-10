@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:tls="http://www.mulesoft.org/schema/mule/tls"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:slack="http://www.mulesoft.org/schema/mule/slack" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/slack http://www.mulesoft.org/schema/mule/slack/current/mule-slack.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="0a741d66-ef1c-4ae4-9f8f-c68b0f39a0b0" >
+		<http:listener-connection host="${https.host}" port="${https.port}" protocol="HTTPS">
+			<tls:context >
+				<tls:key-store keyPassword="changeit" type="jks" path="keystore.jks" password="changeit"/>
+			</tls:context>
+		</http:listener-connection>
+	</http:listener-config>
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="ebd35d2f-26aa-4b6e-880c-0c1aa53d3c24" >
+		<salesforce:basic-connection username="${secure::salesforce.Username}" password="${secure::salesforce.password}" securityToken="${secure::salesforce.token}" />
+	</salesforce:sfdc-config>
+	<slack:config name="Slack_Connector_Config1" doc:name="Slack Connector Config" doc:id="074e0bd5-adc5-44c7-9496-93c03456010d" >
+		<slack:slack-auth-connection >
+			<slack:oauth-authorization-code consumerKey="3462733373637.3462738153573" consumerSecret="e102d420764389b4e3cd3681e4494250" scopes="channels:read calls:write" />
+			<slack:oauth-callback-config listenerConfig="HTTP_Listener_config" callbackPath="/callback" authorizePath="/authorize" externalCallbackUrl="https://localhost:${https.port}/callback" />
+		</slack:slack-auth-connection>
+	</slack:config>
+	<configuration-properties doc:name="Configuration properties" doc:id="d2c18f70-18ec-46fd-b8ab-8d2ff29ae2b3" file="${env}.yaml" />
+	<secure-properties:config name="Secure_Properties_Config" doc:name="Secure Properties Config" doc:id="0d4963c1-d8a8-498b-a5e9-04c51ddbe678" file="${env}.yaml" key="mykey ">
+		<secure-properties:encrypt algorithm="Blowfish" />
+	</secure-properties:config>
+	<flow name="slackintegrationFlow" doc:id="b5232df7-300c-4e6b-98e0-6002e5741bff" >
+		<salesforce:modified-object-listener doc:name="On Modified Object" doc:id="a4e7fd69-aa64-431c-b38b-a1d9c5c3fe43" config-ref="Salesforce_Config" objectType="Account">
+			<scheduling-strategy>
+				<fixed-frequency />
+			</scheduling-strategy>
+		</salesforce:modified-object-listener>
+		<logger level="INFO" doc:name="Logger" doc:id="766953d3-47a8-4f77-93b9-726428cb579a" message="#[payload]"/>
+		<slack:create-chatpost-message doc:name="Send Message" doc:id="5fc4d8b2-2b06-45d3-af40-228a1d1ff36d" config-ref="Slack_Connector_Config1">
+			<slack:chatpost-message-content ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+"channel": "mulesoft",
+"text":  "succesfully  one new account  created"
+}]]]></slack:chatpost-message-content>
+		</slack:create-chatpost-message>
+		<logger level="INFO" doc:name="Logger" doc:id="6f2c5b08-4fd6-4c8b-8e20-e2c14d07a274" message="#[payload]"/>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="52decb2f-5a4c-4a38-a1bd-7b044a839e52" >
+				<ee:transform doc:name="Transform Message" doc:id="ea865a83-9761-4b27-b47b-50fedf00c3c8" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"error": error.description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+	<flow name="slackintegrationFlow1" doc:id="bfdde0f4-dfb2-4e35-91b4-fa646d4831cc" >
+		<http:listener doc:name="callback" doc:id="725bdd2e-0664-4ec6-a93c-a90204abdd89" config-ref="HTTP_Listener_config" path="callback"/>
+		<logger level="INFO" doc:name="Logger" doc:id="bd58c95c-b0f3-49c9-b8a9-abf37cd8d0fc" message="#[payload]"/>
+		<ee:transform doc:name="Transform Message" doc:id="1abc7620-833e-4eef-a134-e93e798d4d27">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"response":"success"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="fcf4bdc0-05c5-40ce-9566-398133c559b4" >
+				<ee:transform doc:name="Transform Message" doc:id="77a967a7-3852-494d-8208-2288ccd2c41a" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"error": error.description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+	<flow name="slackintegrationFlow2" doc:id="2b473c26-bd51-4565-8fdc-329c7a48140f" >
+		<http:listener doc:name="authorise" doc:id="e66f9c17-3a2b-4d1b-9446-60b2f585ff16" path="authorize" config-ref="HTTP_Listener_config"/>
+		<logger level="INFO" doc:name="Logger" doc:id="8374ffc9-d6b2-4353-8a63-5b09430ffa2a" message="#[payload]"/>
+		<ee:transform doc:name="Transform Message" doc:id="6fd486e0-2130-44ba-9a4a-5b69ede93907" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+  channel: attributes.queryParams.channel,
+  text: attributes.queryParams.text
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="221de29d-128d-486d-9da4-045dfb359af2" >
+				<ee:transform doc:name="Transform Message" doc:id="f4cd8803-1bc5-4a54-b823-887a7aa703b8" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"error": error.description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+</mule>
